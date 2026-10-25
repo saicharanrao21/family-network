@@ -1,0 +1,68 @@
+name: production-release
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: backend
+      - run: npx prisma generate
+        working-directory: backend
+      - run: npm run build
+        working-directory: backend
+      - run: node ../scripts/check-release.mjs
+      - run: docker build -t family-network-api:${GITHUB_REF_NAME} .
+        working-directory: backend
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.0'
+          channel: stable
+      - run: flutter create --platforms=android .
+        working-directory: apps/mobile
+      - name: Use stable Kotlin release compilation settings
+        run: |
+          echo "kotlin.incremental=false" >> gradle.properties
+          echo "kotlin.compiler.execution.strategy=in-process" >> gradle.properties
+          echo "org.gradle.parallel=false" >> gradle.properties
+        working-directory: apps/mobile/android
+      - run: flutter pub get
+        working-directory: apps/mobile
+      - run: flutter analyze
+        working-directory: apps/mobile
+      - run: flutter test
+        working-directory: apps/mobile
+      - run: flutter build apk --release
+        working-directory: apps/mobile
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.0'
+          channel: stable
+      - run: flutter create --platforms=ios .
+        working-directory: apps/mobile
+      - run: flutter pub get
+        working-directory: apps/mobile
+      - run: flutter analyze
+        working-directory: apps/mobile
+      - run: flutter test
+        working-directory: apps/mobile
+      - run: flutter build ios --release --no-codesign
+        working-directory: apps/mobile

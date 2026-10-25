@@ -1,0 +1,14 @@
+backend/node_modules/
+backend/dist/
+apps/mobile/.dart_tool/
+apps/mobile/build/
+apps/mobile/android/
+apps/mobile/ios/
+apps/mobile/.idea/
+apps/mobile/*.iml
+apps/mobile/.flutter-plugins
+apps/mobile/.flutter-plugins-dependencies
+backend/.env
+backend/.env.*
+!backend/.env.example
+!backend/.env.production.example

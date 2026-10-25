@@ -1,0 +1,782 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PersonStatus {
+  LIVING
+  DECEASED
+  UNKNOWN
+}
+
+enum NameType {
+  LEGAL
+  BIRTH
+  MAIDEN
+  MARRIED
+  CURRENT
+  FORMER
+  NICKNAME
+  FAMILY_USED
+  ALTERNATE_SPELLING
+  TRANSLITERATION
+  UNKNOWN
+}
+
+enum RelationshipStatus {
+  PROPOSED
+  CONFIRMED
+  DISPUTED
+  REJECTED
+}
+
+enum RelationshipBasis {
+  BIOLOGICAL
+  LEGAL
+  ADOPTIVE
+  STEP
+  GUARDIAN
+  SOCIAL
+  UNKNOWN
+}
+
+enum RelationshipType {
+  PARENT
+  CHILD
+  SIBLING
+  STEP_PARENT
+  STEP_CHILD
+  GUARDIAN
+  OTHER
+}
+
+enum UnionType {
+  MARRIAGE
+  PARTNERSHIP
+  HISTORICAL_UNION
+}
+
+enum UnionStatus {
+  ACTIVE
+  ENDED
+  DIVORCED
+  SEPARATED
+  WIDOWED
+  UNKNOWN
+}
+
+enum ParentType {
+  BIOLOGICAL
+  ADOPTIVE
+  LEGAL
+  STEP
+  GUARDIAN
+  UNKNOWN
+}
+
+enum FamilyPrivacy {
+  PRIVATE
+  INVITE_ONLY
+  FAMILY
+}
+
+enum FamilyRole {
+  OWNER
+  ADMIN
+  CONTRIBUTOR
+  MEMBER
+  VIEWER
+}
+
+enum ClaimStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  DISPUTED
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  EXPIRED
+}
+
+enum AuthProvider {
+  PASSWORD
+  PHONE_OTP
+  GOOGLE
+  APPLE
+}
+
+enum OtpPurpose {
+  LOGIN
+  SIGNUP
+  RECOVERY
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+  SMS
+  WHATSAPP
+  PUSH
+}
+
+enum NotificationStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  FAILED
+  READ
+}
+
+enum SessionStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+enum PrivacyRequestType {
+  EXPORT
+  DELETE
+}
+
+enum PrivacyRequestStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  CANCELED
+  FAILED
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  EXPIRED
+  REVOKED
+}
+
+enum MatchStatus {
+  PENDING
+  CONFIRMED
+  DISMISSED
+}
+
+enum ArchiveVisibility {
+  PRIVATE
+  FAMILY
+}
+
+enum MemoryType {
+  PHOTO
+  VIDEO
+  AUDIO
+  TEXT
+}
+
+enum EventType {
+  BIRTHDAY
+  ANNIVERSARY
+  WEDDING
+  REUNION
+  MEMORIAL
+  OTHER
+}
+
+enum ArchiveDocumentType {
+  CERTIFICATE
+  LETTER
+  RECORD
+  PHOTO
+  OTHER
+}
+
+model User {
+  id                        String                  @id @default(cuid())
+  email                     String?                 @unique
+  phone                     String?                 @unique
+  passwordHash              String?
+  emailVerifiedAt           DateTime?
+  phoneVerifiedAt           DateTime?
+  createdAt                 DateTime                @default(now())
+  updatedAt                 DateTime                @updatedAt
+  claims                    PersonClaim[]
+  familyMemberships         FamilySpaceMember[]
+  subscriptions             Subscription[]
+  auditLogs                 AuditLog[]
+  analyticsEvents           AnalyticsEvent[]
+  notifications             Notification[]
+  notificationPreferences   NotificationPreference?
+  deviceTokens              DeviceToken[]
+  graphAnomaliesResolved    GraphAnomaly[]          @relation("anomalyResolver")
+  moderationReports         ModerationReport[]      @relation("reporter")
+  resolvedModerationReports ModerationReport[]      @relation("reportResolver")
+  authIdentities            AuthIdentity[]
+  sessions                  Session[]
+  otpChallenges             OtpChallenge[]
+  privacyRequests           PrivacyRequest[]
+  sentInvitations           FamilyInvitation[]      @relation("sentInvitations")
+  acceptedInvitations       FamilyInvitation[]      @relation("acceptedInvitations")
+  createdMatchCandidates    PersonMatchCandidate[]  @relation("matchCreatedBy")
+  memories                  Memory[]
+  events                    FamilyEvent[]
+  stories                   FamilyStory[]
+  documents                 ArchiveDocument[]
+  resolvedMatchCandidates   PersonMatchCandidate[]  @relation("matchResolvedBy")
+}
+
+model Person {
+  id                String                    @id @default(cuid())
+  gender            String?
+  birthDate         DateTime?
+  deathDate         DateTime?
+  status            PersonStatus              @default(UNKNOWN)
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  names             PersonName[]
+  relationshipsA    Relationship[]            @relation("personA")
+  relationshipsB    Relationship[]            @relation("personB")
+  unionsA           Union[]                   @relation("partnerA")
+  unionsB           Union[]                   @relation("partnerB")
+  parents           ParentChildRelationship[] @relation("child")
+  children          ParentChildRelationship[] @relation("parent")
+  claims            PersonClaim[]
+  familyMemberships FamilySpaceMember[]
+  privacy           PrivacySetting?
+  invitations       FamilyInvitation[]        @relation("targetPerson")
+  matchCandidatesA  PersonMatchCandidate[]    @relation("matchA")
+  matchCandidatesB  PersonMatchCandidate[]    @relation("matchB")
+  memoryLinks       MemoryPerson[]
+  graphAnomalies    GraphAnomaly[]
+  eventLinks        EventPerson[]
+  storyLinks        StoryPerson[]
+  documentLinks     DocumentPerson[]
+}
+
+model PersonName {
+  id         String    @id @default(cuid())
+  personId   String
+  fullName   String
+  nameType   NameType  @default(CURRENT)
+  language   String?
+  script     String?
+  isPrimary  Boolean   @default(false)
+  isVerified Boolean   @default(false)
+  validFrom  DateTime?
+  validUntil DateTime?
+  person     Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@index([personId])
+  @@index([fullName])
+}
+
+model Relationship {
+  id             String             @id @default(cuid())
+  personAId      String
+  personBId      String
+  type           RelationshipType
+  basis          RelationshipBasis  @default(UNKNOWN)
+  status         RelationshipStatus @default(PROPOSED)
+  confidence     Float?
+  createdById    String
+  verifiedById   String?
+  createdAt      DateTime           @default(now())
+  personA        Person             @relation("personA", fields: [personAId], references: [id], onDelete: Cascade)
+  personB        Person             @relation("personB", fields: [personBId], references: [id], onDelete: Cascade)
+  graphAnomalies GraphAnomaly[]
+
+  @@index([status, personAId])
+  @@index([status, personBId])
+  @@index([personAId])
+  @@index([personBId])
+}
+
+model Union {
+  id             String         @id @default(cuid())
+  partnerAId     String
+  partnerBId     String
+  type           UnionType
+  status         UnionStatus    @default(UNKNOWN)
+  startDate      DateTime?
+  endDate        DateTime?
+  createdById    String
+  partnerA       Person         @relation("partnerA", fields: [partnerAId], references: [id], onDelete: Cascade)
+  partnerB       Person         @relation("partnerB", fields: [partnerBId], references: [id], onDelete: Cascade)
+  graphAnomalies GraphAnomaly[]
+
+  @@index([partnerAId])
+  @@index([partnerBId])
+  @@index([status, startDate])
+}
+
+model ParentChildRelationship {
+  id             String             @id @default(cuid())
+  parentId       String
+  childId        String
+  parentType     ParentType         @default(UNKNOWN)
+  basis          RelationshipBasis  @default(UNKNOWN)
+  status         RelationshipStatus @default(PROPOSED)
+  createdById    String
+  parent         Person             @relation("parent", fields: [parentId], references: [id], onDelete: Cascade)
+  child          Person             @relation("child", fields: [childId], references: [id], onDelete: Cascade)
+  graphAnomalies GraphAnomaly[]
+
+  @@index([parentId])
+  @@index([childId])
+}
+
+model FamilySpace {
+  id          String              @id @default(cuid())
+  name        String
+  description String?
+  privacy     FamilyPrivacy       @default(INVITE_ONLY)
+  createdById String
+  createdAt   DateTime            @default(now())
+  members     FamilySpaceMember[]
+  invitations FamilyInvitation[]
+}
+
+model FamilySpaceMember {
+  id            String      @id @default(cuid())
+  familySpaceId String
+  personId      String
+  userId        String?
+  role          FamilyRole  @default(MEMBER)
+  status        String      @default("ACTIVE")
+  familySpace   FamilySpace @relation(fields: [familySpaceId], references: [id], onDelete: Cascade)
+  person        Person      @relation(fields: [personId], references: [id], onDelete: Cascade)
+  user          User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([familySpaceId, personId])
+  @@index([userId])
+}
+
+model PersonClaim {
+  id                 String      @id @default(cuid())
+  personId           String
+  userId             String
+  status             ClaimStatus @default(PENDING)
+  verificationMethod String?
+  verifiedAt         DateTime?
+  person             Person      @relation(fields: [personId], references: [id], onDelete: Cascade)
+  user               User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([personId, userId])
+}
+
+model PrivacySetting {
+  id                     String  @id @default(cuid())
+  personId               String  @unique
+  discoverable           Boolean @default(false)
+  profileVisibility      String  @default("FAMILY_ONLY")
+  relationshipVisibility String  @default("FAMILY_ONLY")
+  locationVisibility     String  @default("PRIVATE")
+  person                 Person  @relation(fields: [personId], references: [id], onDelete: Cascade)
+}
+
+model Subscription {
+  id                     String              @id @default(cuid())
+  userId                 String
+  provider               String
+  externalCustomerId     String?
+  externalSubscriptionId String?             @unique
+  planCode               String
+  status                 SubscriptionStatus
+  currentPeriodStart     DateTime?
+  currentPeriodEnd       DateTime?
+  cancelAtPeriodEnd      Boolean             @default(false)
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+  user                   User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events                 SubscriptionEvent[]
+
+  @@index([userId])
+}
+
+model SubscriptionEvent {
+  id              String        @id @default(cuid())
+  provider        String
+  externalEventId String        @unique
+  eventType       String
+  verified        Boolean       @default(false)
+  processed       Boolean       @default(false)
+  payload         Json
+  createdAt       DateTime      @default(now())
+  Subscription    Subscription? @relation(fields: [subscriptionId], references: [id])
+  subscriptionId  String?
+}
+
+model FamilyInvitation {
+  id                 String           @id @default(cuid())
+  inviterUserId      String
+  familySpaceId      String?
+  targetPersonId     String?
+  inviteeDestination String?
+  relationHint       String?
+  relationshipType   String?
+  tokenHash          String           @unique
+  status             InvitationStatus @default(PENDING)
+  expiresAt          DateTime
+  acceptedByUserId   String?
+  acceptedAt         DateTime?
+  createdAt          DateTime         @default(now())
+  inviter            User             @relation("sentInvitations", fields: [inviterUserId], references: [id], onDelete: Cascade)
+  acceptedBy         User?            @relation("acceptedInvitations", fields: [acceptedByUserId], references: [id], onDelete: SetNull)
+  familySpace        FamilySpace?     @relation(fields: [familySpaceId], references: [id], onDelete: Cascade)
+  targetPerson       Person?          @relation("targetPerson", fields: [targetPersonId], references: [id], onDelete: SetNull)
+
+  @@index([inviterUserId, status])
+  @@index([inviteeDestination, status])
+  @@index([targetPersonId, status])
+}
+
+model PersonMatchCandidate {
+  id               String      @id @default(cuid())
+  personAId        String
+  personBId        String
+  reason           String
+  confidence       Float?
+  status           MatchStatus @default(PENDING)
+  createdByUserId  String?
+  resolvedByUserId String?
+  resolvedAt       DateTime?
+  createdAt        DateTime    @default(now())
+  personA          Person      @relation("matchA", fields: [personAId], references: [id], onDelete: Cascade)
+  personB          Person      @relation("matchB", fields: [personBId], references: [id], onDelete: Cascade)
+  createdBy        User?       @relation("matchCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  resolvedBy       User?       @relation("matchResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([personAId, personBId])
+  @@index([status, personAId])
+  @@index([status, personBId])
+}
+
+model Memory {
+  id          String            @id @default(cuid())
+  title       String
+  description String?
+  type        MemoryType        @default(TEXT)
+  capturedAt  DateTime?
+  visibility  ArchiveVisibility @default(FAMILY)
+  createdById String
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  createdBy   User              @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  people      MemoryPerson[]
+  assets      MediaAsset[]
+
+  @@index([createdById, createdAt])
+  @@index([capturedAt])
+}
+
+model MemoryPerson {
+  memoryId String
+  personId String
+  memory   Memory @relation(fields: [memoryId], references: [id], onDelete: Cascade)
+  person   Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@id([memoryId, personId])
+  @@index([personId])
+}
+
+model MediaAsset {
+  id              String   @id @default(cuid())
+  memoryId        String?
+  storageKey      String
+  mimeType        String
+  originalName    String?
+  sizeBytes       Int?
+  width           Int?
+  height          Int?
+  durationSeconds Int?
+  checksum        String?
+  createdAt       DateTime @default(now())
+  memory          Memory?  @relation(fields: [memoryId], references: [id], onDelete: SetNull)
+
+  @@index([memoryId])
+  @@index([checksum])
+}
+
+model FamilyEvent {
+  id          String            @id @default(cuid())
+  title       String
+  description String?
+  type        EventType         @default(OTHER)
+  startsAt    DateTime
+  endsAt      DateTime?
+  location    String?
+  visibility  ArchiveVisibility @default(FAMILY)
+  createdById String
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  createdBy   User              @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  people      EventPerson[]
+
+  @@index([startsAt])
+  @@index([createdById, startsAt])
+}
+
+model EventPerson {
+  eventId  String
+  personId String
+  event    FamilyEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  person   Person      @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@id([eventId, personId])
+  @@index([personId])
+}
+
+model FamilyStory {
+  id           String            @id @default(cuid())
+  title        String
+  body         String
+  coverAssetId String?
+  visibility   ArchiveVisibility @default(FAMILY)
+  createdById  String
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  createdBy    User              @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  people       StoryPerson[]
+
+  @@index([createdById, createdAt])
+}
+
+model StoryPerson {
+  storyId  String
+  personId String
+  story    FamilyStory @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  person   Person      @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@id([storyId, personId])
+  @@index([personId])
+}
+
+model ArchiveDocument {
+  id          String              @id @default(cuid())
+  title       String
+  type        ArchiveDocumentType @default(OTHER)
+  description String?
+  storageKey  String
+  mimeType    String
+  checksum    String?
+  visibility  ArchiveVisibility   @default(FAMILY)
+  createdById String
+  createdAt   DateTime            @default(now())
+  createdBy   User                @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  people      DocumentPerson[]
+
+  @@index([createdById, createdAt])
+  @@index([checksum])
+}
+
+model DocumentPerson {
+  documentId String
+  personId   String
+  document   ArchiveDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  person     Person          @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@id([documentId, personId])
+  @@index([personId])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String?
+  action      String
+  entityType  String
+  entityId    String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  actor       User?    @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+model AuthIdentity {
+  id              String       @id @default(cuid())
+  userId          String
+  provider        AuthProvider
+  providerSubject String
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerSubject])
+  @@index([userId])
+}
+
+model Session {
+  id               String        @id @default(cuid())
+  userId           String
+  refreshTokenHash String
+  status           SessionStatus @default(ACTIVE)
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  createdAt        DateTime      @default(now())
+  lastUsedAt       DateTime?
+  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([expiresAt])
+}
+
+model PrivacyRequest {
+  id            String               @id @default(cuid())
+  userId        String
+  type          PrivacyRequestType
+  status        PrivacyRequestStatus @default(PENDING)
+  requestedAt   DateTime             @default(now())
+  completedAt   DateTime?
+  scheduledFor  DateTime?
+  resultRef     String?
+  failureReason String?
+  user          User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type, status])
+  @@index([status, requestedAt])
+}
+
+model OtpChallenge {
+  id          String     @id @default(cuid())
+  userId      String?
+  destination String
+  purpose     OtpPurpose
+  codeHash    String
+  expiresAt   DateTime
+  attempts    Int        @default(0)
+  consumedAt  DateTime?
+  createdAt   DateTime   @default(now())
+  user        User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([destination, purpose])
+  @@index([expiresAt])
+}
+
+model AnalyticsEvent {
+  id         String   @id @default(cuid())
+  userId     String?
+  eventName  String
+  platform   String?
+  properties Json?
+  occurredAt DateTime @default(now())
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([eventName, occurredAt])
+  @@index([userId, occurredAt])
+}
+
+model GraphAnomaly {
+  id               String                   @id @default(cuid())
+  code             String
+  severity         String
+  personId         String?
+  relationshipId   String?
+  parentChildId    String?
+  unionId          String?
+  details          Json?
+  status           String                   @default("OPEN")
+  detectedAt       DateTime                 @default(now())
+  resolvedAt       DateTime?
+  resolvedByUserId String?
+  person           Person?                  @relation(fields: [personId], references: [id], onDelete: SetNull)
+  relationship     Relationship?            @relation(fields: [relationshipId], references: [id], onDelete: SetNull)
+  parentChild      ParentChildRelationship? @relation(fields: [parentChildId], references: [id], onDelete: SetNull)
+  union            Union?                   @relation(fields: [unionId], references: [id], onDelete: SetNull)
+  resolvedBy       User?                    @relation("anomalyResolver", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([status, severity])
+  @@index([detectedAt])
+  @@index([code])
+}
+
+model ModerationReport {
+  id               String    @id @default(cuid())
+  reporterUserId   String
+  targetType       String
+  targetId         String
+  reason           String
+  details          String?
+  status           String    @default("OPEN")
+  createdAt        DateTime  @default(now())
+  resolvedAt       DateTime?
+  resolvedByUserId String?
+  reporter         User      @relation("reporter", fields: [reporterUserId], references: [id], onDelete: Cascade)
+  resolvedBy       User?     @relation("reportResolver", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([targetType, targetId])
+}
+
+model Notification {
+  id         String                 @id @default(cuid())
+  userId     String
+  type       String
+  title      String
+  body       String
+  data       Json?
+  readAt     DateTime?
+  createdAt  DateTime               @default(now())
+  user       User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveries NotificationDelivery[]
+
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
+}
+
+model NotificationPreference {
+  id                   String  @id @default(cuid())
+  userId               String  @unique
+  emailEnabled         Boolean @default(true)
+  smsEnabled           Boolean @default(true)
+  whatsappEnabled      Boolean @default(true)
+  pushEnabled          Boolean @default(true)
+  familyActivity       Boolean @default(true)
+  relationshipRequests Boolean @default(true)
+  invitations          Boolean @default(true)
+  security             Boolean @default(true)
+  marketing            Boolean @default(false)
+  user                 User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model DeviceToken {
+  id         String   @id @default(cuid())
+  userId     String
+  token      String   @unique
+  platform   String
+  enabled    Boolean  @default(true)
+  lastSeenAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, enabled])
+}
+
+model NotificationDelivery {
+  id                String              @id @default(cuid())
+  notificationId    String
+  channel           NotificationChannel
+  destination       String              @default("")
+  status            NotificationStatus  @default(QUEUED)
+  provider          String?
+  providerMessageId String?
+  errorCode         String?
+  errorMessage      String?
+  attempts          Int                 @default(0)
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+  readAt            DateTime?
+  createdAt         DateTime            @default(now())
+  notification      Notification        @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@unique([notificationId, channel, destination])
+  @@index([notificationId, channel])
+  @@index([status, createdAt])
+}

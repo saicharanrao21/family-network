@@ -1,0 +1,25 @@
+name: family_network
+publish_to: 'none'
+description: Living Family Network mobile/web client.
+version: 1.0.0+1
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+  flutter: '>=3.33.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^2.5.1
+  go_router: ^14.2.7
+  dio: ^5.7.0
+  freezed_annotation: ^2.4.4
+  json_annotation: ^4.9.0
+  shared_preferences: ^2.3.2
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  build_runner: ^2.4.13
+  freezed: ^2.5.7
+  json_serializable: ^6.9.0
+flutter:
+  uses-material-design: true
