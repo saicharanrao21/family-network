@@ -3,12 +3,78 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiClient {
   final Dio dio;
+  Future<String?>? _refreshing;
+
   ApiClient({String? baseUrl})
       : dio = Dio(BaseOptions(
             baseUrl: baseUrl ??
                 const String.fromEnvironment('API_BASE_URL',
                     defaultValue: 'http://localhost:3000/api/v1'),
-            headers: {'Content-Type': 'application/json'}));
+            headers: {'Content-Type': 'application/json'})) {
+    dio.interceptors.add(InterceptorsWrapper(
+      onRequest: (options, handler) async {
+        final accessToken = await token();
+        if (accessToken != null && accessToken.isNotEmpty) {
+          options.headers['Authorization'] = 'Bearer $accessToken';
+        }
+        handler.next(options);
+      },
+      onError: (error, handler) async {
+        final request = error.requestOptions;
+        if (error.response?.statusCode != 401 ||
+            request.path == '/auth/refresh' ||
+            request.extra['authRefreshRetried'] == true) {
+          handler.next(error);
+          return;
+        }
+
+        try {
+          final accessToken = await _refreshAccessToken();
+          if (accessToken == null) {
+            handler.next(error);
+            return;
+          }
+          request
+            ..headers['Authorization'] = 'Bearer $accessToken'
+            ..extra['authRefreshRetried'] = true;
+          handler.resolve(await dio.fetch<dynamic>(request));
+        } on DioException catch (refreshError) {
+          if (refreshError.response?.statusCode == 401 ||
+              refreshError.response?.statusCode == 403) {
+            await logout();
+          }
+          handler.reject(refreshError);
+        } catch (refreshError) {
+          handler.reject(
+            DioException(requestOptions: request, error: refreshError),
+          );
+        }
+      },
+    ));
+  }
+
+  Future<String?> _refreshAccessToken() {
+    final refreshInProgress = _refreshing;
+    if (refreshInProgress != null) return refreshInProgress;
+    final refresh = _performRefresh();
+    _refreshing = refresh;
+    return refresh.whenComplete(() => _refreshing = null);
+  }
+
+  Future<String?> _performRefresh() async {
+    final preferences = await SharedPreferences.getInstance();
+    final refreshToken = preferences.getString('refreshToken');
+    if (refreshToken == null || refreshToken.isEmpty) return null;
+    final response = await dio.post<Map<String, dynamic>>(
+      '/auth/refresh',
+      data: {'refreshToken': refreshToken},
+    );
+    final tokens = Map<String, dynamic>.from(response.data!);
+    await saveTokens(tokens);
+    final accessToken = tokens['accessToken'] as String?;
+    return accessToken?.isNotEmpty == true ? accessToken : null;
+  }
+
   Future<void> saveTokens(Map<String, dynamic> data) async {
     final p = await SharedPreferences.getInstance();
     await p.setString('accessToken', data['accessToken'] ?? '');
@@ -50,6 +116,7 @@ class ApiClient {
     await p.remove('refreshToken');
     await p.remove('userId');
     await p.remove('personId');
+    _cachedPersonId = null;
   }
 
   Future<String?> token() async {
@@ -119,6 +186,7 @@ class ApiClient {
 
   Future<Map<String, dynamic>> createInvitation(
       {required String inviterPersonId,
+      String? familySpaceId,
       String? destination,
       required String relationshipType,
       String? relationHint}) async {
@@ -126,11 +194,28 @@ class ApiClient {
     final r = await dio.post('/family-builder/invite',
         data: {
           'inviterPersonId': inviterPersonId,
+          'familySpaceId': familySpaceId,
           'destination': destination,
           'relationshipType': relationshipType,
           'relationHint': relationHint
         },
         options: Options(headers: {'Authorization': 'Bearer $t'}));
+    return Map<String, dynamic>.from(r.data);
+  }
+
+  Future<List<dynamic>> getFamilySpaces() async {
+    final r = await dio.get('/family-builder/family-spaces',
+        options: Options(headers: {'Authorization': '******'}));
+    return List<dynamic>.from(r.data as List);
+  }
+
+  Future<Map<String, dynamic>> createFamilySpace(
+      {required String name,
+      String? description,
+      String privacy = 'INVITE_ONLY'}) async {
+    final r = await dio.post('/family-builder/family-spaces',
+        data: {'name': name, 'description': description, 'privacy': privacy},
+        options: Options(headers: {'Authorization': '******'}));
     return Map<String, dynamic>.from(r.data);
   }
 
@@ -146,6 +231,12 @@ class ApiClient {
     final r = await dio.post('/family-builder/invitations/accept',
         data: {'token': inviteToken},
         options: Options(headers: {'Authorization': 'Bearer $t'}));
+    return Map<String, dynamic>.from(r.data);
+  }
+
+  Future<Map<String, dynamic>> revokeInvitation(String invitationId) async {
+    final r = await dio.post('/family-builder/invitations/$invitationId/revoke',
+        options: Options(headers: {'Authorization': '******'}));
     return Map<String, dynamic>.from(r.data);
   }
 

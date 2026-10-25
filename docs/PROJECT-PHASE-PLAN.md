@@ -1,19 +1,17 @@
-# Project Phase Plan — Verified Status
+# Project Phase Plan — Evidence-Based Status
 
-“Source present” means code or documentation exists. It does **not** mean the complete phase acceptance criteria were demonstrated. The release remains blocked; see [FINAL-STATUS.md](FINAL-STATUS.md).
+Source presence is not equivalent to complete acceptance. The current release gate is **BLOCKED**; see [FINAL-STATUS.md](FINAL-STATUS.md).
 
-1. Foundation & Product Architecture — source present; product acceptance not revalidated.
-2. Authentication & Identity — source present; live authentication and identity-claim flows not integration-tested.
-3. Family Graph Core — graph algorithms unit-tested; database-backed graph behavior not tested.
-4. Relationship Engine & Interactive Family Explorer — source and model tests present; device-level interaction not verified.
-5. Family Builder & Branch Connection — invitation/ownership unit tests pass; database-backed independent-branch acceptance not run.
-6. Search, Name Intelligence & Discovery — source present; privacy-filtered integration behavior not verified.
-7. Memories, Stories, Events & Family Archive — source present; storage/provider and authorization flows not integration-tested.
-8. Admin, Moderation, Analytics & Graph Health — source present; operational permissions and database behavior not acceptance-tested.
-9. Subscriptions & Monetization — source adapters present; provider sandbox/webhook lifecycle not tested.
-10. Notifications & Provider Integrations — adapters present; delivery providers and device push not validated.
-11. Privacy, Security & Data Rights — targeted authorization fixes applied; full security/privacy acceptance and export/delete lifecycle remain unverified.
-12. Testing, Performance, Accessibility & Reliability — selected automated checks pass; integration, accessibility, device, and restore testing remain incomplete.
-13. Production Release — release scripts, a generated schema baseline, and an Android APK are present; clean migration replay, API deployment, iOS artifact, and production operations are not verified.
-
-No phase is represented as fully release-accepted by this status document.
+1. Foundation and architecture — backend builds and Nest DI bootstrap passes; complete architecture/product acceptance remains outstanding.
+2. Authentication and identity — registration/login, OTP, session rotation/revocation, and access guards passed database-backed tests; provider identity delivery and full mobile recovery remain open.
+3. Family graph core — graph/path/privacy behavior and persistent branch connectivity passed integration tests; device-scale rendering remains unverified.
+4. Relationship engine and explorer — server-side relationship ownership/privacy covered; on-device graph interactions and accessibility not tested.
+5. Family builder and branch connection — family spaces, invitations, revocation, human-reviewed candidate handling, and separate branches passed API/database acceptance; UI interaction remains unverified.
+6. Search and discovery — alternate-name/search behavior exists; private profile/relationship discovery and surname suggestions received integration assertions; broad discovery quality remains unverified.
+7. Memories, stories, events, archive — owner isolation and private-person association tested; storage provider and all archive workflows remain unverified.
+8. Admin, moderation, analytics, graph health — admin API allowlist/session checks and persisted report resolution tested; static console browser interaction remains open.
+9. Subscriptions and monetization — local signed Stripe/Razorpay webhook events exercise signatures, duplicates, retry, payment failure, and Stripe cancellation; sandbox checkout and Razorpay recurring lifecycle remain open.
+10. Notifications and provider integrations — source adapters exist; delivery is not verified against sandbox providers/devices.
+11. Privacy, security, and data rights — selected privacy boundaries and audit behavior tested; complete route review, export/deletion fulfilment, retention, and external security testing remain open.
+12. Testing, performance, accessibility, reliability — backend/mobile checks and graph microbenchmark pass; CI, device, accessibility, provider, and restore checks remain open.
+13. Production release — clean disposable migration and local APK build pass; CI, iOS, staging, operational drills, and release approval remain open.

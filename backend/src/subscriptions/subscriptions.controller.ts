@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Headers, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { IsIn, IsString } from 'class-validator';
 import { AuthGuard } from '../common/auth.guard';
 import { CurrentUserId } from '../common/auth-user.decorator';
@@ -17,7 +17,10 @@ export class SubscriptionsController {
   @UseGuards(AuthGuard)
   @Post('cancel') cancel(@CurrentUserId() userId:string){ return this.subscriptions.cancel(userId); }
   @Post('webhooks/:provider') webhook(@Param('provider') provider:string,@Headers('x-webhook-signature') signature:string|undefined,@Req() req:any){
-    const body = Buffer.isBuffer(req.rawBody) ? req.rawBody.toString('utf8') : (typeof req.rawBody === 'string' ? req.rawBody : JSON.stringify(req.body || {}));
+    if (!Buffer.isBuffer(req.rawBody)) {
+      throw new BadRequestException('Raw webhook request body is unavailable');
+    }
+    const body = req.rawBody.toString('utf8');
     return this.subscriptions.webhook(provider.toLowerCase(),signature,body);
   }
 }

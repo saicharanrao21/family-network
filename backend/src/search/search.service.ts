@@ -24,6 +24,33 @@ export class SearchService {
     return claim.personId;
   }
 
+  private async restrictedPersonIds(userId: string, personIds: string[]) {
+    const ids = [...new Set(personIds)];
+    if (!ids.length) return new Set<string>();
+    const [privateSettings, claims] = await Promise.all([
+      this.prisma.privacySetting.findMany({
+        where: {
+          personId: { in: ids },
+          OR: [
+            { profileVisibility: 'PRIVATE' },
+            { relationshipVisibility: 'PRIVATE' },
+          ],
+        },
+        select: { personId: true },
+      }),
+      this.prisma.personClaim.findMany({
+        where: { userId, status: 'VERIFIED', personId: { in: ids } },
+        select: { personId: true },
+      }),
+    ]);
+    const owned = new Set(claims.map((claim) => claim.personId));
+    return new Set(
+      privateSettings
+        .map((setting) => setting.personId)
+        .filter((personId) => !owned.has(personId)),
+    );
+  }
+
   /** Collect every verified connected person without imposing a fixed generation limit. */
   private async accessibleIds(userId: string) {
     const root = await this.root(userId);
@@ -39,8 +66,10 @@ export class SearchService {
         this.prisma.union.findMany({ where: { partnerBId: { in: frontier }, status: { in: ['ACTIVE','ENDED','DIVORCED','SEPARATED','WIDOWED'] } }, select: { partnerAId: true } }),
       ]);
       const next = new Set<string>();
-      for (const id of [...relsA.map(x => x.personBId), ...relsB.map(x => x.personAId), ...parents.map(x => x.childId), ...children.map(x => x.parentId), ...unionsA.map(x => x.partnerBId), ...unionsB.map(x => x.partnerAId)]) {
-        if (!seen.has(id)) { seen.add(id); next.add(id); }
+      const candidates = [...relsA.map(x => x.personBId), ...relsB.map(x => x.personAId), ...parents.map(x => x.childId), ...children.map(x => x.parentId), ...unionsA.map(x => x.partnerBId), ...unionsB.map(x => x.partnerAId)];
+      const restricted = await this.restrictedPersonIds(userId, candidates);
+      for (const id of candidates) {
+        if (!restricted.has(id) && !seen.has(id)) { seen.add(id); next.add(id); }
       }
       frontier = [...next];
       if (seen.size > 100000) break;
@@ -88,15 +117,16 @@ export class SearchService {
   }
 
   async surnameSuggestions(userId: string, personId: string, limit = 30) {
-    const { ids } = await this.accessibleIds(userId);
+    const { ids, root } = await this.accessibleIds(userId);
     if (!ids.includes(personId)) throw new ForbiddenException('Person is outside your verified family graph');
-    const people = await this.prisma.person.findMany({ where: { id: { in: ids } }, include: { names: true } });
+    const people = await this.prisma.person.findMany({ where: { id: { in: ids } }, include: { names: true, privacy: true } });
     const selected = people.find(p => p.id === personId);
     if (!selected) return [];
     const sourceNames = selected.names.map(n => surnameOf(n.fullName)).filter(Boolean);
     const sourceSet = new Set(sourceNames);
     return people.flatMap(person => {
       if (person.id === personId) return [];
+      if (person.id !== root && person.privacy?.profileVisibility === 'PRIVATE') return [];
       const matches = person.names.filter(n => sourceSet.has(surnameOf(n.fullName)));
       if (!matches.length) return [];
       const name = person.names.find(n => n.isPrimary)?.fullName ?? person.names[0]?.fullName ?? 'Unknown';
@@ -105,10 +135,10 @@ export class SearchService {
   }
 
   async relationshipSearch(userId: string, q: string) {
-    const { ids } = await this.accessibleIds(userId);
+    const { ids, root } = await this.accessibleIds(userId);
     const term = normalize(q || '');
-    const people = await this.prisma.person.findMany({ where: { id: { in: ids } }, include: { names: { where: { isPrimary: true }, take: 1 } } });
-    const ranked = people.map(p => ({ p, score: normalize(p.names[0]?.fullName ?? '').includes(term) ? 100 : 0 })).filter(x => x.score).sort((a,b) => b.score-a.score).slice(0, 10);
+    const people = await this.prisma.person.findMany({ where: { id: { in: ids } }, include: { names: { where: { isPrimary: true }, take: 1 }, privacy: true } });
+    const ranked = people.filter(p => p.id === root || p.privacy?.profileVisibility !== 'PRIVATE').map(p => ({ p, score: normalize(p.names[0]?.fullName ?? '').includes(term) ? 100 : 0 })).filter(x => x.score).sort((a,b) => b.score-a.score).slice(0, 10);
     return ranked.map(x => ({ personId: x.p.id, name: x.p.names[0]?.fullName ?? 'Unknown' }));
   }
 }

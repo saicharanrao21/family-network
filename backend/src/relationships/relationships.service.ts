@@ -14,6 +14,41 @@ export class RelationshipsService {
     const claim = await this.prisma.personClaim.findFirst({ where: { userId, personId, status: 'VERIFIED' } });
     if (!claim) throw new ForbiddenException('You do not control this person');
   }
+  private async assertNoOtherOwner(userId: string, personId: string) {
+    const claim = await this.prisma.personClaim.findFirst({
+      where: { userId: { not: userId }, personId, status: 'VERIFIED' },
+      select: { id: true },
+    });
+    if (claim) {
+      throw new ForbiddenException('Use a family invitation to connect to a profile claimed by another account');
+    }
+  }
+  private async restrictedPersonIds(userId: string, personIds: string[]) {
+    const ids = [...new Set(personIds)];
+    if (!ids.length) return new Set<string>();
+    const [privateSettings, claims] = await Promise.all([
+      this.prisma.privacySetting.findMany({
+        where: {
+          personId: { in: ids },
+          OR: [
+            { profileVisibility: 'PRIVATE' },
+            { relationshipVisibility: 'PRIVATE' },
+          ],
+        },
+        select: { personId: true },
+      }),
+      this.prisma.personClaim.findMany({
+        where: { userId, status: 'VERIFIED', personId: { in: ids } },
+        select: { personId: true },
+      }),
+    ]);
+    const owned = new Set(claims.map((claim) => claim.personId));
+    return new Set(
+      privateSettings
+        .map((setting) => setting.personId)
+        .filter((personId) => !owned.has(personId)),
+    );
+  }
   private ensureDistinct(a: string, b: string) { if (a === b) throw new BadRequestException('A person cannot be related to themselves'); }
   private async peopleExist(ids: string[]) {
     const unique = [...new Set(ids)];
@@ -23,7 +58,7 @@ export class RelationshipsService {
 
   async createRelationship(userId: string, input: any) {
     const { personAId, personBId, type, basis = 'UNKNOWN' } = input;
-    this.ensureDistinct(personAId, personBId); await this.peopleExist([personAId, personBId]); await this.assertCanEdit(userId, personAId);
+    this.ensureDistinct(personAId, personBId); await this.peopleExist([personAId, personBId]); await this.assertCanEdit(userId, personAId); await this.assertNoOtherOwner(userId, personBId);
     if (type === 'PARENT' || type === 'CHILD' || type === 'SIBLING') {
       const duplicate = await this.prisma.relationship.findFirst({ where: { personAId, personBId, type, status: { not: 'REJECTED' } } });
       if (duplicate) return duplicate;
@@ -33,7 +68,7 @@ export class RelationshipsService {
 
   async createParentChild(userId: string, input: any) {
     const { parentId, childId, parentType = 'BIOLOGICAL', basis = 'BIOLOGICAL' } = input;
-    this.ensureDistinct(parentId, childId); await this.peopleExist([parentId, childId]); await this.assertCanEdit(userId, parentId);
+    this.ensureDistinct(parentId, childId); await this.peopleExist([parentId, childId]); await this.assertCanEdit(userId, parentId); await this.assertNoOtherOwner(userId, childId);
     // Prevent a confirmed parent/child cycle: if child can already reach parent through parent edges, this edge would create a loop.
     const reachable = new Set<string>([childId]); const queue = [childId];
     while (queue.length) {
@@ -49,7 +84,7 @@ export class RelationshipsService {
 
   async createUnion(userId: string, input: any) {
     const { partnerAId, partnerBId, type = 'MARRIAGE', status = 'ACTIVE', startDate, endDate } = input;
-    this.ensureDistinct(partnerAId, partnerBId); await this.peopleExist([partnerAId, partnerBId]); await this.assertCanEdit(userId, partnerAId);
+    this.ensureDistinct(partnerAId, partnerBId); await this.peopleExist([partnerAId, partnerBId]); await this.assertCanEdit(userId, partnerAId); await this.assertNoOtherOwner(userId, partnerBId);
     if (startDate && endDate && new Date(endDate) < new Date(startDate)) throw new BadRequestException('Union end date cannot precede start date');
     return this.prisma.union.create({ data: { partnerAId, partnerBId, type, status, startDate: startDate ? new Date(startDate) : undefined, endDate: endDate ? new Date(endDate) : undefined, createdById: userId } });
   }
@@ -82,13 +117,28 @@ export class RelationshipsService {
         this.prisma.union.findMany({ where: { partnerBId: { in: frontier }, status: { in: ['ACTIVE','ENDED','DIVORCED','SEPARATED','WIDOWED'] } } }),
       ]);
       const next: string[] = [];
-      const addEdge = (a: string, b: string, type: string, id: string) => { edges.push({ id, source: a, target: b, type }); if (!seen.has(b)) { seen.add(b); next.push(b); } };
+      const layerEdges: { source: string; target: string; type: string; id: string }[] = [];
+      const addEdge = (source: string, target: string, type: string, id: string) => {
+        layerEdges.push({ id, source, target, type });
+      };
       relsA.forEach(r => addEdge(r.personAId, r.personBId, r.type, r.id));
       relsB.forEach(r => addEdge(r.personBId, r.personAId, r.type, r.id));
       pcsParent.forEach(r => addEdge(r.parentId, r.childId, `PARENT_${r.parentType}`, r.id));
       pcsChild.forEach(r => addEdge(r.childId, r.parentId, `CHILD_${r.parentType}`, r.id));
       unionsA.forEach(r => addEdge(r.partnerAId, r.partnerBId, `UNION_${r.type}`, r.id));
       unionsB.forEach(r => addEdge(r.partnerBId, r.partnerAId, `UNION_${r.type}`, r.id));
+      const restricted = await this.restrictedPersonIds(
+        userId,
+        layerEdges.map((edge) => edge.target),
+      );
+      for (const edge of layerEdges) {
+        if (restricted.has(edge.target)) continue;
+        edges.push(edge);
+        if (!seen.has(edge.target)) {
+          seen.add(edge.target);
+          next.push(edge.target);
+        }
+      }
       frontier = next;
     }
     const people = await this.prisma.person.findMany({ where: { id: { in: [...seen] } }, include: { names: { where: { isPrimary: true }, take: 1 }, privacy: true } });
@@ -98,6 +148,9 @@ export class RelationshipsService {
 
   async related(userId: string, a: string, b: string) {
     await this.assertCanEdit(userId, a); await this.peopleExist([a,b]);
+    if ((await this.restrictedPersonIds(userId, [b])).has(b)) {
+      throw new ForbiddenException('This family member has limited relationship visibility');
+    }
     const queue: string[] = [a]; const prev = new Map<string, { from: string; label: string }>(); const seen = new Set([a]);
     while (queue.length) {
       const cur = queue.shift()!;
@@ -111,7 +164,11 @@ export class RelationshipsService {
       ra.forEach(r=>neighbors.push([r.personBId,r.type])); rb.forEach(r=>neighbors.push([r.personAId,r.type]));
       pa.forEach(r=>neighbors.push([r.childId,`PARENT_${r.parentType}`])); pc.forEach(r=>neighbors.push([r.parentId,`CHILD_${r.parentType}`]));
       ua.forEach(r=>neighbors.push([r.partnerBId,`UNION_${r.type}`])); ub.forEach(r=>neighbors.push([r.partnerAId,`UNION_${r.type}`]));
-      for (const [n,label] of neighbors) if (!seen.has(n)) { seen.add(n); prev.set(n,{from:cur,label}); queue.push(n); }
+      const restricted = await this.restrictedPersonIds(
+        userId,
+        neighbors.map(([personId]) => personId),
+      );
+      for (const [n,label] of neighbors) if (!restricted.has(n) && !seen.has(n)) { seen.add(n); prev.set(n,{from:cur,label}); queue.push(n); }
     }
     if (!seen.has(b)) return { connected:false, path:[] };
     const path:any[] = []; let cur=b; while(cur!==a){ const p=prev.get(cur)!; path.push({personId:cur, via:p.label}); cur=p.from; } path.push({personId:a,via:'START'}); path.reverse();
@@ -125,18 +182,25 @@ export class RelationshipsService {
   async kinship(userId: string, a: string, b: string) {
     await this.assertCanEdit(userId, a);
     await this.peopleExist([a, b]);
-    const targetPrivacy = await this.prisma.privacySetting.findUnique({where:{personId:b}});
-    if (targetPrivacy?.relationshipVisibility === 'PRIVATE' && a !== b) throw new ForbiddenException('This family member has limited relationship visibility');
+    const relatedPeople = await this.restrictedPersonIds(userId, [a, b]);
+    if (relatedPeople.has(b) && a !== b) {
+      throw new ForbiddenException('This family member has limited relationship visibility');
+    }
     if (a === b) return { connected: true, relation: 'Self', path: [{ personId: a, via: 'START' }], hops: 0 };
 
     const [parents, unions] = await Promise.all([
       this.prisma.parentChildRelationship.findMany({ where: { status: 'CONFIRMED' }, select: { parentId: true, childId: true, parentType: true } }),
       this.prisma.union.findMany({ where: { status: { in: ['ACTIVE','ENDED','DIVORCED','SEPARATED','WIDOWED'] } }, select: { partnerAId: true, partnerBId: true, type: true } }),
     ]);
+    const hiddenRelationships = await this.restrictedPersonIds(userId, [
+      ...parents.flatMap((r) => [r.parentId, r.childId]),
+      ...unions.flatMap((u) => [u.partnerAId, u.partnerBId]),
+    ]);
 
     const parentOf = new Map<string, { id: string; type: string }[]>();
     const childOf = new Map<string, { id: string; type: string }[]>();
     for (const r of parents) {
+      if (hiddenRelationships.has(r.parentId) || hiddenRelationships.has(r.childId)) continue;
       if (!parentOf.has(r.parentId)) parentOf.set(r.parentId, []);
       if (!childOf.has(r.childId)) childOf.set(r.childId, []);
       parentOf.get(r.parentId)!.push({ id: r.childId, type: `PARENT_${r.parentType}` });
@@ -144,6 +208,7 @@ export class RelationshipsService {
     }
     const unionOf = new Map<string, { id: string; type: string }[]>();
     for (const u of unions) {
+      if (hiddenRelationships.has(u.partnerAId) || hiddenRelationships.has(u.partnerBId)) continue;
       if (!unionOf.has(u.partnerAId)) unionOf.set(u.partnerAId, []);
       if (!unionOf.has(u.partnerBId)) unionOf.set(u.partnerBId, []);
       unionOf.get(u.partnerAId)!.push({ id: u.partnerBId, type: `UNION_${u.type}` });

@@ -1,36 +1,47 @@
-# Test Results
+# Test Results — 2026-10-25
 
-## Passing checks
+## Environment and scope
 
-Executed in the current workspace:
+Checks were run in the Windows checkout on branch `main`, based on `b729310`. Database testing used a disposable PostgreSQL 18 cluster created for this sprint, bound only to `127.0.0.1:55432`, with database `family_network_test`. No production database, data, credentials, charges, or messages were used.
 
-- Backend: `npm ci`
-- Prisma: `npx prisma validate` and `npx prisma generate`
-- Migration: a single initial SQL migration was generated from the current Prisma schema, and a second Prisma diff produced byte-identical SQL; it has not been applied to a PostgreSQL instance.
-- Backend: `npm run build` and `npm run build:strict`
-- Backend: `npm test` — 11 passing tests covering graph algorithms, Nest application dependency injection, family invitation authorization/acceptance, and match-candidate behavior
-- Backend: `npm run benchmark:graph` — 10,000-node synthetic graph
-- Backend: `npm run release:check` — source-secret scan
-- Flutter: `dart format --output=none --set-exit-if-changed .`
-- Flutter: `flutter analyze`
-- Flutter: `flutter test` — 5 passing API URL, graph parsing, and home screen widget tests
+## Passed
 
-See the CI workflows for the corresponding automated checks. Passing these checks does not substitute for database-backed integration or product acceptance tests.
+| Command/check | Result |
+|---|---|
+| `npm run build` (backend) | Pass |
+| `npm run build:strict` | Pass |
+| `npm test` | 11/11 passed: graph algorithms, Nest DI bootstrap, family-space/invitation authorization, and match-candidate cases |
+| `npm run test:integration` with the disposable database and test-only JWT secret | 1/1 scenario passed against the real HTTP API and persisted PostgreSQL state |
+| `npx prisma migrate deploy` against the empty disposable database | Initial migration applied successfully |
+| `npx prisma migrate status` | Database up to date; one initial migration |
+| `npx prisma migrate diff --from-url <test DATABASE_URL> --to-schema-datamodel prisma/schema.prisma --script --exit-code` | Empty diff |
+| `npm run release:smoke` while the API was running | Liveness 200; readiness 200; database reported `ok` |
+| `npm run release:check` | Source-secret scan passed |
+| `npm run benchmark:graph` | 10,000 nodes; bounded traversal 11.3 ms; 10,000-node path 17.69 ms in the recorded run |
+| `dart format --set-exit-if-changed lib/core/api_client.dart lib/features/family/family_builder.dart` | Pass; no changes needed after formatting |
+| `flutter analyze` | No issues found |
+| `flutter test` | 7/7 passed, including concurrent access-token refresh/retry, logout identity-cache clearing, graph model, API base URL, and home widget tests |
+| `flutter build apk --release` | Pass; `apps/mobile/build/app/outputs/flutter-apk/app-release.apk`, 54,601,554 bytes |
+| `node --check apps/admin/admin.js` | Pass |
+| Admin page in browser | Static page and script loaded; unauthenticated admin request correctly returned 401. Authenticated button workflows were not browser-driven. |
+| `git diff --check` | Pass; only Git line-ending notices were printed |
 
-## Failed or blocked checks
+The database-backed scenario covers separate accounts and persisted branches, reviewed invitations and match candidates, graph reachability and non-merging, wrong-owner relationship attempts, private graph/search/archive behavior, family-space membership, invitation revoke/expiry/retry, session and OTP replay protections, admin authorization/moderation resolution, and signed/idempotent/retryable Stripe and Razorpay webhook flows.
 
-- **Android release APK:** default builds failed while compiling `shared_preferences_android` with Kotlin incremental-cache closure/duplicate-registration errors. A clean build after `flutter clean` succeeded with `kotlin.incremental=false`, `kotlin.compiler.execution.strategy=in-process`, and `org.gradle.parallel=false`. The resulting APK is 52.1 MB (SHA-256: `807EC296F64F28B1E86F08D77B294FB4D50917B349962A96740E7ECBD68650E0`). These settings were added to the release workflow; CI has not yet confirmed that workflow, and the APK has not been installed or device-tested.
-- **Migration status:** a local attempt with deliberately invalid placeholder test database credentials failed with PostgreSQL authentication error P1000. No migration was applied.
-- **API smoke:** no API was listening on the expected local port during the earlier smoke attempt, so it failed to connect. It has not been repeated against a live test database.
-- **iOS release:** not run; this workspace is Windows.
+## Failed attempts and tooling limitations
 
-## Not run
+- `npm run test:integration` was once invoked without `DATABASE_URL`; it failed fast with the test's required-environment message. It passed when rerun with the disposable loopback URL and test-only JWT secret.
+- `npm run release:smoke` was first run before the local API was started and could not connect. It passed after the API was launched against the disposable database.
+- A workflow-YAML parse was attempted, but `ConvertFrom-Yaml`, Python, Ruby, and Node YAML packages were unavailable. The workflow was inspected manually; GitHub Actions has not run this workflow in this sprint.
+- The APK build emitted a Cupertino icon font warning, but completed successfully. No Android device or emulator was connected, so installation and runtime behavior were not checked.
 
-- Migration replay and resulting-schema comparison against an empty disposable PostgreSQL database (no usable instance or valid test credentials; Docker and PostgreSQL client tools are unavailable)
-- Database-backed service/controller tests
-- Independent-family-branch connection acceptance
-- Device-level Android/iOS, accessibility, and performance acceptance
-- Payment, identity, notification, push, and object-storage provider sandbox tests
-- Backup/restore and rollback drill
+## Not verified
 
-The full release decision is in [FINAL-STATUS.md](FINAL-STATUS.md).
+- iOS build/device acceptance (requires macOS).
+- Android installation, responsive layouts, text scaling, accessibility, graph rendering/performance, and end-to-end mobile navigation on devices.
+- Browser-executed admin console behavior; only its JavaScript syntax and backing admin API were tested.
+- GitHub Actions execution, provider sandboxes, OAuth, OTP delivery, notifications/push, object storage, or real provider failure/retry behavior beyond mocked signed webhook requests.
+- Razorpay recurring-subscription behavior; current checkout creates a one-time order for the yearly plan.
+- Staging deployment, secret-manager configuration, backups/restores, rollback, monitoring, and operational alert delivery.
+
+See [END-TO-END-STATUS.md](END-TO-END-STATUS.md), [SECURITY-STATUS.md](SECURITY-STATUS.md), and [KNOWN-ISSUES.md](KNOWN-ISSUES.md) for release implications.

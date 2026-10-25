@@ -17,6 +17,7 @@ class _FamilyBuilderScreenState extends ConsumerState<FamilyBuilderScreen> {
   bool loading = true;
   String? error;
   Map<String, dynamic>? invitations;
+  List<dynamic> familySpaces = const [];
   List<dynamic> matches = const [];
 
   @override
@@ -32,13 +33,19 @@ class _FamilyBuilderScreenState extends ConsumerState<FamilyBuilderScreen> {
     });
     try {
       final api = ref.read(apiProvider);
-      final i = await api.getInvitations();
+      final results = await Future.wait([
+        api.getInvitations(),
+        api.getFamilySpaces(),
+      ]);
+      final i = results[0] as Map<String, dynamic>;
+      final spaces = results[1] as List<dynamic>;
       final person = await api.currentPersonId();
       final m =
           person == null ? <dynamic>[] : await api.getMatchCandidates(person);
       if (mounted) {
         setState(() {
           invitations = i;
+          familySpaces = spaces;
           matches = m;
           loading = false;
         });
@@ -50,6 +57,52 @@ class _FamilyBuilderScreenState extends ConsumerState<FamilyBuilderScreen> {
           error = 'Could not load family builder data.';
         });
       }
+    }
+  }
+
+  Future<void> _createFamilySpace() async {
+    final name = TextEditingController();
+    final shouldCreate = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Create a family space'),
+        content: TextField(
+          controller: name,
+          autofocus: true,
+          textCapitalization: TextCapitalization.words,
+          decoration: const InputDecoration(labelText: 'Family space name'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (name.text.trim().isNotEmpty) {
+                Navigator.pop(dialogContext, true);
+              }
+            },
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+    if (shouldCreate != true || !mounted) {
+      name.dispose();
+      return;
+    }
+    try {
+      await ref.read(apiProvider).createFamilySpace(name: name.text.trim());
+      if (mounted) await _load();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not create this family space.')),
+        );
+      }
+    } finally {
+      name.dispose();
     }
   }
 
@@ -164,6 +217,7 @@ class _FamilyBuilderScreenState extends ConsumerState<FamilyBuilderScreen> {
     final destination = TextEditingController();
     final hint = TextEditingController();
     String relation = 'SIBLING';
+    String? familySpaceId;
     final result = await showModalBottomSheet<Map<String, dynamic>>(
         context: context,
         isScrollControlled: true,
@@ -193,6 +247,29 @@ class _FamilyBuilderScreenState extends ConsumerState<FamilyBuilderScreen> {
                             controller: destination,
                             decoration: const InputDecoration(
                                 labelText: 'Email or phone (optional)')),
+                        if (familySpaces.isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          DropdownButtonFormField<String>(
+                            initialValue: familySpaceId,
+                            decoration: const InputDecoration(
+                                labelText: 'Connect to a family space'),
+                            items: [
+                              const DropdownMenuItem<String>(
+                                  child: Text('Just my person profile')),
+                              ...familySpaces.map((entry) {
+                                final space = (entry as Map?) ??
+                                    const <String, dynamic>{};
+                                return DropdownMenuItem<String>(
+                                  value: '${space['id']}',
+                                  child: Text(
+                                      '${space['name'] ?? 'Family space'}'),
+                                );
+                              }),
+                            ],
+                            onChanged: (value) =>
+                                setModal(() => familySpaceId = value),
+                          ),
+                        ],
                         const SizedBox(height: 12),
                         DropdownButtonFormField<String>(
                             initialValue: relation,
@@ -228,6 +305,7 @@ class _FamilyBuilderScreenState extends ConsumerState<FamilyBuilderScreen> {
                                     if (self == null) throw Exception();
                                     final out = await api.createInvitation(
                                         inviterPersonId: self,
+                                        familySpaceId: familySpaceId,
                                         destination:
                                             destination.text.trim().isEmpty
                                                 ? null
@@ -302,6 +380,19 @@ class _FamilyBuilderScreenState extends ConsumerState<FamilyBuilderScreen> {
     }
   }
 
+  Future<void> _revokeInvitation(String id) async {
+    try {
+      await ref.read(apiProvider).revokeInvitation(id);
+      if (mounted) await _load();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not revoke this invitation.')),
+        );
+      }
+    }
+  }
+
   Future<void> _resolve(String id, String action) async {
     try {
       await ref.read(apiProvider).resolveMatch(id, action);
@@ -369,6 +460,34 @@ class _FamilyBuilderScreenState extends ConsumerState<FamilyBuilderScreen> {
                                 title: 'Accept invite',
                                 onTap: _acceptInvite))
                       ]),
+                      const SizedBox(height: 10),
+                      _ActionCard(
+                          icon: Icons.groups_2_outlined,
+                          title: 'Create family space',
+                          onTap: _createFamilySpace),
+                      if (familySpaces.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        const Text('Your family spaces',
+                            style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w800,
+                                color: _forest)),
+                        ...familySpaces.map((space) {
+                          final data = (space as Map?) ?? const {};
+                          final membership =
+                              (data['myMembership'] as Map?) ?? const {};
+                          return ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: const CircleAvatar(
+                              backgroundColor: Color(0xFFE6EFEA),
+                              child: Icon(Icons.groups_2, color: _forest),
+                            ),
+                            title: Text('${data['name'] ?? 'Family space'}'),
+                            subtitle: Text(
+                                '${data['privacy'] ?? 'INVITE_ONLY'} • ${membership['role'] ?? 'MEMBER'}'),
+                          );
+                        }),
+                      ],
                       const SizedBox(height: 20),
                       const Text('Branch connections',
                           style: TextStyle(
@@ -461,7 +580,15 @@ class _FamilyBuilderScreenState extends ConsumerState<FamilyBuilderScreen> {
                               title: Text(
                                   '${i['relationHint'] ?? i['relationshipType'] ?? 'Relative'}'),
                               subtitle: Text(
-                                  '${i['status']} • ${i['inviteeDestination'] ?? 'share token'}'))),
+                                  '${i['status']} • ${i['inviteeDestination'] ?? 'share token'}'),
+                              trailing: i['status'] == 'PENDING'
+                                  ? IconButton(
+                                      tooltip: 'Revoke invitation',
+                                      onPressed: () =>
+                                          _revokeInvitation('${i['id']}'),
+                                      icon: const Icon(Icons.cancel_outlined),
+                                    )
+                                  : null)),
                     ])));
   }
 }

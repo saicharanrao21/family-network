@@ -12,7 +12,17 @@ export class AdminService {
     try {
       const payload = await this.jwt.verifyAsync<any>(token, { secret: process.env.JWT_ACCESS_SECRET || (() => { throw new UnauthorizedException('Authentication is not configured'); })() });
       const ids = (process.env.ADMIN_USER_IDS || '').split(',').map(v => v.trim()).filter(Boolean);
-      if (!payload.sub || ids.length === 0 || !ids.includes(payload.sub)) throw new UnauthorizedException('Admin access denied');
+      if (!payload.sub || !payload.sid || ids.length === 0 || !ids.includes(payload.sub)) throw new UnauthorizedException('Admin access denied');
+      const session = await this.prisma.session.findFirst({
+        where: {
+          id: payload.sid,
+          userId: payload.sub,
+          status: 'ACTIVE',
+          expiresAt: { gt: new Date() },
+        },
+        select: { id: true },
+      });
+      if (!session) throw new UnauthorizedException('Admin session is no longer active');
       return payload.sub;
     } catch (e) {
       if (e instanceof UnauthorizedException) throw e;

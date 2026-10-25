@@ -1,29 +1,22 @@
 # Known Issues and Release Blockers
 
-## 1. Initial migration not replay-tested
+## Release remains blocked
 
-The incomplete incremental migration history was replaced with a single initial migration generated from the current Prisma schema. It contains the current schema's 35 tables and 25 enum types, and Prisma schema validation/client generation pass. The migration has not been applied to PostgreSQL or compared against the resulting database schema because no usable disposable instance and valid test credentials were available; Docker and PostgreSQL client tools are not installed in this workspace.
+The disposable-database replay, schema comparison, real API acceptance scenario, backend/mobile automated checks, local API readiness smoke, and Android release APK build now pass. These results are not a production deployment or full product release acceptance.
 
-**Required resolution:** apply the baseline to an empty disposable PostgreSQL database, then compare that database to `schema.prisma` and check `prisma migrate status`. Do not mark migrations applied against a real database.
+## Remaining blockers
 
-## 2. No database-backed API verification
+1. **Platform acceptance:** no Android device/emulator was connected, and iOS requires a macOS build agent. Install/run the APK on supported Android devices; build, sign, install, and test iOS on macOS.
+2. **CI workflow:** the PostgreSQL-backed GitHub Actions job was added but not executed on GitHub. Workflow parsing could not be automated because no YAML parser was installed. Run the workflow and resolve any CI-specific issues.
+3. **Provider integrations:** no sandbox credentials were supplied. Exercise OAuth, email/SMS OTP delivery, notification/push, storage access/failure, billing checkout, and provider retries in their respective sandboxes. Stripe/Razorpay webhook HMAC, duplicate delivery, failed-payment status, and retry behavior were exercised using signed local test events only.
+4. **Razorpay recurring plans:** checkout currently creates a one-time order for a yearly plan. Implement Razorpay subscription-plan creation and lifecycle mapping before selling a recurring yearly plan; verify it in sandbox.
+5. **Operations:** no staging deployment, backup/restore, migration rollback, monitoring, alert delivery, or incident drill was executed. Follow [FINAL-RELEASE-RUNBOOK.md](FINAL-RELEASE-RUNBOOK.md) in a controlled staging environment and record restore/rollback evidence.
+6. **Full product acceptance:** UI/browser/device interaction, accessibility, large graph rendering, network recovery across screens, route-wide authorization/privacy review, and data export/deletion fulfilment are not fully verified. Run the remaining checks in [FINAL-RELEASE-CHECKLIST.md](FINAL-RELEASE-CHECKLIST.md).
 
-No valid test database credentials were provided. Migration status failed with P1000 using deliberately invalid test credentials; no migrations were applied. The API health, auth, and data routes therefore have not been verified against PostgreSQL.
+## Known implementation caveats
 
-## 3. Branch-connection acceptance is unverified
+- The admin console now provides anomaly resolution and report resolve/dismiss controls, but those browser interactions have not been manually exercised; the underlying admin API permissions and persisted report resolution passed integration tests.
+- Access-token refresh is covered by a Flutter test with concurrent unauthorized requests and a fake HTTP adapter. Live mobile-to-backend refresh, expired refresh-token recovery, and auth-state navigation after final session expiry still need device acceptance.
+- The APK build reports that a Cupertino icon font was expected but not found; the release build still completes. Verify all referenced icon families on-device and include the correct asset/package if an icon is missing.
 
-No database-backed end-to-end test demonstrates two independently created branches being connected through a reviewed identity match while preserving both branches and honoring privacy controls. The current suite includes mock-based checks for invitation acceptance, foreign-owner link denial, family-space authorization, destination binding, and match-candidate ownership; graph state and persistence are not exercised against PostgreSQL.
-
-## 4. Android artifact needs CI/device verification
-
-The default Android build failed in Kotlin incremental-cache handling in `shared_preferences_android`. A local build succeeded after disabling Kotlin incremental compilation and Gradle parallelism and using the in-process compiler. These settings are now in the release workflow, but CI has not yet run and the APK has not been installed or device-tested.
-
-## 5. iOS and external providers unverified
-
-iOS builds require macOS and were not run. Payment, OAuth, email/SMS/WhatsApp, push, and object-storage adapters have not been validated against sandbox accounts.
-
-## 6. Security/privacy acceptance incomplete
-
-Targeted authorization and dependency-injection remediations are in place, but route-by-route object authorization, privacy-field filtering, export/delete completion, and full security testing are not demonstrated. Do not interpret the source-secret scan as a vulnerability assessment.
-
-See [TEST-RESULTS.md](TEST-RESULTS.md), [END-TO-END-STATUS.md](END-TO-END-STATUS.md), and [SECURITY-STATUS.md](SECURITY-STATUS.md).
+No production database, production credential, charge, message, deployment, or store submission was used.

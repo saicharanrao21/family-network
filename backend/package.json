@@ -9,6 +9,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "test": "node --test ../tools/graph-core.test.mjs test/app-module.test.cjs test/family-builder.test.cjs",
+    "test:integration": "node --test test/api.integration.test.cjs",
     "benchmark:graph": "node ../tools/graph-benchmark.mjs",
     "smoke": "node ../tools/api-smoke.mjs",
     "build:strict": "tsc --noEmit",

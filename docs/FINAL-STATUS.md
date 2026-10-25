@@ -2,31 +2,25 @@
 
 ## Release decision
 
-**Not release-approved.** The repository builds and its current automated backend and Flutter checks pass, but database migration readiness, live API behavior, the independent-branch acceptance scenario, and mobile release artifacts are not verified.
+**BLOCKED — not approved for production deployment or store release.** The migration and database-backed API acceptance work that was previously unverified has now passed in an isolated disposable PostgreSQL environment. Device/platform, provider-sandbox, GitHub Actions, staging, and operational restore checks remain open.
 
-## Verified in this workspace
+## Confirmed evidence
 
-| Area | Result | Evidence |
-|---|---|---|
-| Prisma schema | Pass | `prisma validate` and client generation completed |
-| Backend | Pass | Nest build, strict TypeScript check, 11 tests, and application DI bootstrap |
-| Flutter | Pass | Format check, analyzer, and all unit/widget tests |
-| Graph performance | Pass | 10,000-node synthetic benchmark completed within documented targets |
-| Release source scan | Pass | `npm run release:check` |
+- PostgreSQL 18 clean migration replay: one baseline migration applied; status is up to date; Prisma schema diff is empty.
+- Backend build and strict typecheck pass; 11 backend unit/mock tests pass.
+- One real HTTP/PostgreSQL integration scenario passes, covering independent family branches, human-reviewed connection, no silent merge, authorization/privacy, sessions/OTP, invitations, admin moderation, and signed billing webhook flows.
+- Flutter analyzer passes; all 7 tests pass, including concurrent access-token refresh/retry and logout identity-cache behavior.
+- Android release APK builds locally (54,601,554 bytes).
+- API liveness/readiness smoke, graph benchmark, and release source-secret scan pass.
 
-Detailed commands and limitations are recorded in [TEST-RESULTS.md](TEST-RESULTS.md).
+Detailed commands and boundaries are in [TEST-RESULTS.md](TEST-RESULTS.md). Source audit and feature evidence are in [PROJECT-AUDIT.md](PROJECT-AUDIT.md) and [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md).
 
-## Release blockers
+## Blocking items
 
-1. The broken incremental migration folders have been replaced with a single initial migration generated from the current Prisma schema. Schema validation and client generation pass, but no usable disposable PostgreSQL instance and valid test credentials were available to replay the migration or compare the resulting database schema. Do not deploy until a clean-database replay is verified.
-2. No valid test database credentials were available. A migration-status attempt with deliberately invalid local test credentials failed authentication; no migration was applied.
-3. There is no executed API health/auth smoke against a running API and database. The earlier smoke attempt could not connect because no API server was listening.
-4. The two-branch workflow has mock-based service tests for invitation acceptance and ownership gates, but no database-backed end-to-end test demonstrates independently built branches, reviewed matching, privacy checks, and resulting graph behavior.
-5. An Android release APK was produced after disabling Kotlin incremental compilation, using the in-process Kotlin compiler, and disabling Gradle parallelism. These settings were added to the release workflow, but the workflow has not yet run and the APK has not been installed/device-tested. iOS release was not run in this Windows environment.
-6. Live payment, identity, messaging, push, and object-storage provider behavior has not been validated with provider test accounts.
+1. GitHub Actions workflow has not been run; automated YAML parsing was unavailable in the local environment.
+2. No Android device/emulator was connected and iOS cannot be built in this Windows environment.
+3. Provider sandbox behavior, including Razorpay recurring subscriptions, is not verified; Razorpay checkout is currently a one-time order for the yearly plan.
+4. Admin browser interactions, complete mobile acceptance, accessibility, full route-by-route security review, and data-rights fulfilment remain unverified.
+5. Staging deployment, backup/restore, rollback, monitoring, and operational alert drills have not been executed.
 
-See [KNOWN-ISSUES.md](KNOWN-ISSUES.md), [END-TO-END-STATUS.md](END-TO-END-STATUS.md), and [FINAL-RELEASE-CHECKLIST.md](FINAL-RELEASE-CHECKLIST.md) before attempting release.
-
-## Scope note
-
-The phase documents describe planned or implemented source functionality, not proof that every acceptance criterion passed. The current verified phase status is summarized in [PROJECT-PHASE-PLAN.md](PROJECT-PHASE-PLAN.md). Production credentials were not read or used.
+See [KNOWN-ISSUES.md](KNOWN-ISSUES.md) and [FINAL-RELEASE-CHECKLIST.md](FINAL-RELEASE-CHECKLIST.md). Production credentials/data were not accessed, and no public deployment or release was attempted.

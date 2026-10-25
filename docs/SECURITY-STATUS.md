@@ -1,25 +1,25 @@
 # Security and Privacy Verification Status
 
-## Current status
+## Status
 
-Targeted security remediations were made; a comprehensive security review and privacy acceptance audit have **not** been completed. No claim that all security issues are resolved should be inferred from passing build or source-scan checks.
+Targeted security and privacy behavior listed below was exercised by automated tests against a disposable PostgreSQL database and real API routes. This is not a complete security review, penetration test, or declaration that the application is free of vulnerabilities. Release remains blocked; see [FINAL-RELEASE-CHECKLIST.md](FINAL-RELEASE-CHECKLIST.md).
 
-## Remediations verified
+## Verified protections
 
-- Person routes use the JWT-verifying `AuthGuard` rather than trusting a decoded token payload.
-- Shared `JwtService`/`AuthGuard` and `PrismaService` providers are registered through global Nest modules.
-- A Nest dependency-injection bootstrap test initializes the application with the database provider isolated.
-- Direct family links to another account's claimed profile are rejected; family-space invitations require active membership; destination-bound invitations require a matching verified contact.
-- Invitation acceptance and invitation state transition run in a single database transaction; match candidates can be resolved by either owning party, independent of canonical ID ordering.
-- The repository source-secret scan passes.
+- The request guard verifies JWTs and requires their referenced database session to remain active and unexpired. The admin authorization path now applies the same active-session check in addition to the configured admin-user allowlist.
+- Refresh-token rotation rejects reuse; revoked access sessions fail authorization. OTP codes are random, normalized to the destination, single-use, and attempt-limited.
+- Direct API writes cannot attach a person claimed by another account. Branch connection requires the invitation/match workflow and an authorized action.
+- Private profiles or private relationship settings are excluded from graph traversal and path/kinship access, search discovery surfaces, surname suggestions, and archive person association for other accounts.
+- Archive records are owner-filtered; cross-account archive access and private-person association were tested.
+- Invitation ownership/destination/revocation, match-review authorization, and admin moderation authorization are exercised.
+- Stripe signature verification uses timestamped raw-body HMAC with a freshness window; Razorpay uses raw-body HMAC. Duplicate webhook events are idempotent and failed processing can be retried.
+- The repository source-secret scan passed.
 
-## Security/privacy work still required
+## Not comprehensively verified
 
-- Exercise each protected endpoint with unauthenticated, unauthorized, cross-family, and wrong-owner identities.
-- Test privacy filtering across graph expansion, search, relationship paths, and archive content, including living people and private intermediaries.
-- Verify invitation and person-match authorization against independently owned branches.
-- Exercise export, deletion, retention, and account-claim lifecycle with a database.
-- Validate production CORS, JWT rotation/expiry, rate limits, webhook signature handling, upload validation, and audit logging under representative runtime configuration.
-- Review third-party/provider data handling and operational secret management.
+- Every route, field, object identifier, role, and admin operation; race conditions beyond exercised refresh/webhook cases; rate limiting and abuse controls.
+- Production CORS, secret rotation, token expiry on mobile devices, provider account configuration, upload/storage access controls, and data retention.
+- Export/deletion fulfilment, legal retention handling, backup access controls, and restore procedures.
+- Dependency and supply-chain review, external penetration testing, and production infrastructure configuration.
 
-The release gate is documented in [FINAL-RELEASE-CHECKLIST.md](FINAL-RELEASE-CHECKLIST.md). This document is a status summary, not a vulnerability assessment.
+Use sandbox accounts and staging infrastructure for the remaining checks. Do not test against production data, charge real payment methods, or send production messages during verification.

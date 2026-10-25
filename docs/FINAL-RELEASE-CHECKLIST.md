@@ -1,32 +1,28 @@
 # Family Network — Release Gate Checklist
 
-**Status: BLOCKED — do not publish or deploy.** A checked item means the check was executed successfully in this workspace; it is not a claim of production readiness.
+**Status: BLOCKED — do not deploy publicly or publish an app-store release.** Completed items are limited to evidence from this checkout and its disposable test database.
 
-## Completed checks
+## Completed in this sprint
 
-- [x] Prisma schema validation and client generation
-- [x] Single initial migration generated from the current schema (clean replay still unverified)
-- [x] Backend build and strict TypeScript check
-- [x] Backend automated tests, including Nest module dependency-injection bootstrap
-- [x] Mock-based invitation, ownership, destination, and match-candidate regression tests
-- [x] Flutter format check and static analysis
-- [x] Flutter unit and widget tests
-- [x] Android release APK produced locally with stable Kotlin compiler settings
-- [x] 10,000-node graph benchmark
-- [x] Release source-secret scan
-- [x] Credentials and signing keys excluded from repository
+- [x] Replayed the initial Prisma migration on a clean, disposable PostgreSQL cluster.
+- [x] `prisma migrate status` reports the database up to date; Prisma schema diff is empty.
+- [x] Backend build, strict typecheck, and all 11 unit/mock tests pass.
+- [x] Real HTTP/PostgreSQL two-account family-branch acceptance scenario passes.
+- [x] Auth/session/OTP, cross-owner authorization, privacy, family-space/invitation, admin moderation, and signed webhook assertions pass.
+- [x] Flutter formatter, analyzer, and all 7 unit/widget/client tests pass.
+- [x] Android release APK builds locally.
+- [x] API liveness/readiness smoke passes against the disposable database.
+- [x] Graph benchmark and source-secret scan pass.
 
-## Required before release
+## Must complete before release
 
-- [ ] Apply the initial migration to an empty disposable PostgreSQL database and verify the resulting schema matches Prisma.
-- [ ] Confirm `prisma migrate status` reports no pending migrations on that database.
-- [ ] Start the API against the test database and pass liveness, readiness, authentication, and authorization smoke tests.
-- [ ] Run the two-independent-branches connection acceptance flow, including human review of match candidates and privacy checks.
-- [ ] Add database-backed integration coverage for branch connection, invitation acceptance, authorization, and privacy boundaries.
-- [ ] Verify Android release workflow in CI; inspect and install the APK on supported devices.
-- [ ] Produce and inspect an iOS release artifact on macOS.
-- [ ] Validate provider sandboxes, signed webhook handling, object storage, backup/restore, and operational alerts.
-- [ ] Complete accessibility and device-level acceptance on supported screen sizes.
-- [ ] Review deployment secrets, origin allowlists, signing, rollback, and restore procedures with the release owner.
+- [ ] Run and pass the GitHub Actions workflow, including the PostgreSQL integration job.
+- [ ] Install and test the APK on supported Android devices/emulators; verify responsive layout, accessibility, text scale, graph interaction, and runtime errors.
+- [ ] Build, sign, install, and test an iOS artifact on macOS.
+- [ ] Manually exercise the admin console, including graph scan, anomaly resolution, moderation, and audit display.
+- [ ] Validate OAuth, OTP delivery, push/notifications, object storage, and both billing providers in sandbox. Implement and validate Razorpay recurring subscriptions before offering a yearly recurring plan.
+- [ ] Validate export/deletion fulfilment and account/session recovery on mobile.
+- [ ] Deploy to staging and complete configuration/secrets review, migration rehearsal, backup/restore, rollback, monitoring, and alert-delivery drills.
+- [ ] Have the release owner review privacy, security, support, and legal requirements and explicitly approve deployment.
 
-Deployment procedures in [FINAL-RELEASE-RUNBOOK.md](FINAL-RELEASE-RUNBOOK.md) are instructions only; they have not been executed against production.
+Do not deploy or publish without explicit authorization. Detailed evidence and blockers are in [TEST-RESULTS.md](TEST-RESULTS.md), [KNOWN-ISSUES.md](KNOWN-ISSUES.md), and [FINAL-RELEASE-RUNBOOK.md](FINAL-RELEASE-RUNBOOK.md).

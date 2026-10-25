@@ -12,6 +12,15 @@ export class ArchiveService {
     if(!claim) throw new ForbiddenException('No verified family identity found');
     return claim.personId;
   }
+  private async restrictedPersonIds(userId:string,personIds:string[]){
+    const ids=[...new Set(personIds)]; if(!ids.length) return new Set<string>();
+    const [privateSettings,claims]=await Promise.all([
+      this.prisma.privacySetting.findMany({where:{personId:{in:ids},OR:[{profileVisibility:'PRIVATE'},{relationshipVisibility:'PRIVATE'}]},select:{personId:true}}),
+      this.prisma.personClaim.findMany({where:{userId,status:'VERIFIED',personId:{in:ids}},select:{personId:true}}),
+    ]);
+    const owned=new Set(claims.map(claim=>claim.personId));
+    return new Set(privateSettings.map(setting=>setting.personId).filter(personId=>!owned.has(personId)));
+  }
   private async accessibleIds(userId:string){
     const root=await this.root(userId); const seen=new Set([root]); let frontier=[root];
     while(frontier.length){
@@ -24,7 +33,9 @@ export class ArchiveService {
         this.prisma.union.findMany({where:{partnerBId:{in:frontier},status:{in:['ACTIVE','ENDED','DIVORCED','SEPARATED','WIDOWED']}},select:{partnerAId:true}}),
       ]);
       const next:string[]=[];
-      for(const id of [...a.map(x=>x.personBId),...b.map(x=>x.personAId),...p.map(x=>x.childId),...c.map(x=>x.parentId),...ua.map(x=>x.partnerBId),...ub.map(x=>x.partnerAId)]) if(!seen.has(id)){seen.add(id);next.push(id);}
+      const candidates=[...a.map(x=>x.personBId),...b.map(x=>x.personAId),...p.map(x=>x.childId),...c.map(x=>x.parentId),...ua.map(x=>x.partnerBId),...ub.map(x=>x.partnerAId)];
+      const restricted=await this.restrictedPersonIds(userId,candidates);
+      for(const id of candidates) if(!restricted.has(id)&&!seen.has(id)){seen.add(id);next.push(id);}
       frontier=next; if(seen.size>100000) break;
     }
     return seen;

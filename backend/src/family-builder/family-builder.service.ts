@@ -34,7 +34,7 @@ export class FamilyBuilderService {
     otherId: string,
     relationshipType: string,
     options: any = {},
-    prisma: Pick<PrismaService, 'union' | 'parentChildRelationship' | 'relationship'> = this.prisma,
+    prisma: Pick<PrismaService, 'union' | 'parentChildRelationship' | 'relationship' | 'person' | 'auditLog'> = this.prisma,
   ) {
     if (selfId === otherId) throw new BadRequestException('A person cannot be connected to themselves');
     if (relationshipType === 'SPOUSE') {
@@ -66,10 +66,12 @@ export class FamilyBuilderService {
     await this.assertOwn(userId, selfId);
     const name = String(input.name || '').trim();
     if (!name) throw new BadRequestException('Name is required');
-    const person = await this.prisma.person.create({ data: { gender: input.gender || undefined, birthDate: input.birthDate ? new Date(input.birthDate) : undefined, status: input.status || 'UNKNOWN', names: { create: { fullName: name, nameType: input.nameType || 'CURRENT', isPrimary: true } }, privacy: { create: { discoverable: false } } } });
-    const connection = await this.attachRelationship(userId, selfId, person.id, String(input.relationshipType || '').toUpperCase(), input);
-    await this.prisma.auditLog.create({ data: { actorUserId: userId, action: 'FAMILY_BUILDER_ADD_RELATIVE', entityType: 'PERSON', entityId: person.id, metadata: { selfPersonId: selfId, relationshipType: input.relationshipType } } });
-    return { person, connection };
+    return this.prisma.$transaction(async (tx) => {
+      const person = await tx.person.create({ data: { gender: input.gender || undefined, birthDate: input.birthDate ? new Date(input.birthDate) : undefined, status: input.status || 'UNKNOWN', names: { create: { fullName: name, nameType: input.nameType || 'CURRENT', isPrimary: true } }, privacy: { create: { discoverable: false } } } });
+      const connection = await this.attachRelationship(userId, selfId, person.id, String(input.relationshipType || '').toUpperCase(), input, tx);
+      await tx.auditLog.create({ data: { actorUserId: userId, action: 'FAMILY_BUILDER_ADD_RELATIVE', entityType: 'PERSON', entityId: person.id, metadata: { selfPersonId: selfId, relationshipType: input.relationshipType } } });
+      return { person, connection };
+    });
   }
 
   async connectExisting(userId: string, input: any) {
@@ -82,9 +84,89 @@ export class FamilyBuilderService {
     if (otherOwner) {
       throw new ForbiddenException('Use a family invitation to connect to a profile claimed by another account');
     }
-    const connection = await this.attachRelationship(userId, selfId, input.otherPersonId, String(input.relationshipType || '').toUpperCase(), input);
-    await this.prisma.auditLog.create({ data: { actorUserId: userId, action: 'FAMILY_BUILDER_CONNECT_EXISTING', entityType: 'PERSON', entityId: input.otherPersonId, metadata: { selfPersonId: selfId, relationshipType: input.relationshipType } } });
-    return connection;
+    return this.prisma.$transaction(async (tx) => {
+      const connection = await this.attachRelationship(userId, selfId, input.otherPersonId, String(input.relationshipType || '').toUpperCase(), input, tx);
+      await tx.auditLog.create({ data: { actorUserId: userId, action: 'FAMILY_BUILDER_CONNECT_EXISTING', entityType: 'PERSON', entityId: input.otherPersonId, metadata: { selfPersonId: selfId, relationshipType: input.relationshipType } } });
+      return connection;
+    });
+  }
+
+  async createFamilySpace(userId: string, input: any) {
+    const claim = await this.prisma.personClaim.findFirst({
+      where: { userId, status: 'VERIFIED' },
+      orderBy: { verifiedAt: 'asc' },
+    });
+    if (!claim) throw new ForbiddenException('A verified family identity is required');
+    const name = typeof input.name === 'string' ? input.name.trim() : '';
+    if (!name) throw new BadRequestException('Family space name is required');
+    const privacy = input.privacy ?? 'INVITE_ONLY';
+    if (!['PRIVATE', 'INVITE_ONLY', 'FAMILY'].includes(privacy)) {
+      throw new BadRequestException('Invalid family space privacy');
+    }
+    if (input.description != null && typeof input.description !== 'string') {
+      throw new BadRequestException('Family space description must be a string');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const familySpace = await tx.familySpace.create({
+        data: {
+          name,
+          description: input.description?.trim() || undefined,
+          privacy,
+          createdById: userId,
+          members: {
+            create: {
+              personId: claim.personId,
+              userId,
+              role: 'OWNER',
+            },
+          },
+        },
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          privacy: true,
+          createdAt: true,
+          members: {
+            where: { userId, status: 'ACTIVE' },
+            select: { personId: true, role: true },
+          },
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          actorUserId: userId,
+          action: 'FAMILY_SPACE_CREATED',
+          entityType: 'FAMILY_SPACE',
+          entityId: familySpace.id,
+          metadata: { name, privacy },
+        },
+      });
+      return familySpace;
+    });
+  }
+
+  async listFamilySpaces(userId: string) {
+    const spaces = await this.prisma.familySpace.findMany({
+      where: { members: { some: { userId, status: 'ACTIVE' } } },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        privacy: true,
+        createdAt: true,
+        members: {
+          where: { userId, status: 'ACTIVE' },
+          select: { personId: true, role: true },
+        },
+      },
+    });
+    return spaces.map(({ members, ...space }) => ({
+      ...space,
+      myMembership: members[0],
+    }));
   }
 
   async createInvitation(userId: string, input: any) {
@@ -125,8 +207,11 @@ export class FamilyBuilderService {
     }
     const token = randomBytes(32).toString('base64url');
     const inviteeDestination = input.destination?.trim().toLowerCase() || undefined;
-    const invitation = await this.prisma.familyInvitation.create({ data: { inviterUserId: userId, familySpaceId, targetPersonId, inviteeDestination, relationHint: input.relationHint || undefined, relationshipType, tokenHash: this.hashToken(token), expiresAt: new Date(Date.now() + INVITE_DAYS * 86400000) } });
-    await this.prisma.auditLog.create({ data: { actorUserId: userId, action: 'FAMILY_INVITE_CREATED', entityType: 'FAMILY_INVITATION', entityId: invitation.id, metadata: { relationshipType: invitation.relationshipType, targetPersonId: invitation.targetPersonId } } });
+    const invitation = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.familyInvitation.create({ data: { inviterUserId: userId, familySpaceId, targetPersonId, inviteeDestination, relationHint: input.relationHint || undefined, relationshipType, tokenHash: this.hashToken(token), expiresAt: new Date(Date.now() + INVITE_DAYS * 86400000) } });
+      await tx.auditLog.create({ data: { actorUserId: userId, action: 'FAMILY_INVITE_CREATED', entityType: 'FAMILY_INVITATION', entityId: created.id, metadata: { relationshipType: created.relationshipType, targetPersonId: created.targetPersonId } } });
+      return created;
+    });
     return { invitation, token, shareText: `Join my family network and connect as ${input.relationHint || String(input.relationshipType).toLowerCase()}. Invite token: ${token}` };
   }
 
@@ -222,6 +307,36 @@ export class FamilyBuilderService {
       return result;
     });
     return { invitationId: invitation.id, connection };
+  }
+
+  async revokeInvitation(userId: string, invitationId: string) {
+    const invitation = await this.prisma.familyInvitation.findFirst({
+      where: { id: invitationId, inviterUserId: userId },
+    });
+    if (!invitation) throw new NotFoundException('Invitation not found');
+    if (invitation.status !== 'PENDING') {
+      throw new BadRequestException('Only pending invitations can be revoked');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const revoked = await tx.familyInvitation.updateMany({
+        where: { id: invitationId, inviterUserId: userId, status: 'PENDING' },
+        data: { status: 'REVOKED' },
+      });
+      if (revoked.count !== 1) {
+        throw new BadRequestException('Invitation is no longer pending');
+      }
+      await tx.auditLog.create({
+        data: {
+          actorUserId: userId,
+          action: 'FAMILY_INVITE_REVOKED',
+          entityType: 'FAMILY_INVITATION',
+          entityId: invitationId,
+          metadata: { targetPersonId: invitation.targetPersonId },
+        },
+      });
+      return { invitationId, status: 'REVOKED' as const };
+    });
   }
 
   async createMatchCandidate(userId: string, input: any) {
